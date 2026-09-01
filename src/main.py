@@ -1,6 +1,8 @@
+import re
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import urllib.parse
+import urllib.request
 import webbrowser
 
 
@@ -11,14 +13,12 @@ class PornLinkGenerator:
         self.root.geometry("780x620")
         self.root.minsize(600, 500)
 
-        # Style
         style = ttk.Style()
         style.theme_use("clam")
 
         main_frame = ttk.Frame(root, padding=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # --- Wejście ---
         input_frame = ttk.LabelFrame(main_frame, text="Parametry", padding=10)
         input_frame.pack(fill=tk.X, pady=(0, 10))
 
@@ -27,14 +27,24 @@ class PornLinkGenerator:
         self.keywords_entry.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=3)
         self.keywords_entry.insert(0, "blonde anal")
 
-        ttk.Label(input_frame, text="Liczba linków:").grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Label(input_frame, text="Tryb wyszukiwania:").grid(row=1, column=0, sticky="w", pady=3)
+        self.search_mode = tk.StringVar(value="Losowe filmy z kategorii")
+        self.search_mode_combo = ttk.Combobox(
+            input_frame,
+            textvariable=self.search_mode,
+            values=["Losowe filmy z kategorii", "Wyszukiwanie"],
+            state="readonly",
+            width=28,
+        )
+        self.search_mode_combo.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=3)
+
+        ttk.Label(input_frame, text="Liczba linków:").grid(row=2, column=0, sticky="w", pady=3)
         self.num_entry = ttk.Spinbox(input_frame, from_=1, to=50, width=10)
-        self.num_entry.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=3)
+        self.num_entry.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=3)
         self.num_entry.set(10)
 
         input_frame.columnconfigure(1, weight=1)
 
-        # Przyciski
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(0, 10))
 
@@ -43,7 +53,6 @@ class PornLinkGenerator:
         ttk.Button(btn_frame, text="Kopiuj wszystko", command=self.copy_all).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(btn_frame, text="Wyczyść", command=self.clear).pack(side=tk.LEFT)
 
-        # Wyniki
         result_frame = ttk.LabelFrame(main_frame, text="Wygenerowane linki", padding=10)
         result_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -52,12 +61,10 @@ class PornLinkGenerator:
 
         self.links = []
 
-        # Info
-        info = ttk.Label(main_frame, text="Program generuje linki do stron wyszukiwania (nie bezpośrednie filmy). Działa stabilnie.", foreground="gray")
+        info = ttk.Label(main_frame, text="Program wyszukuje rzeczywiste filmy z podanej kategorii i pobiera działające linki bezpośrednie do nich z wyników wyszukiwania. Nie dodaje sztucznych dodatkowych kategorii.", foreground="gray")
         info.pack(pady=(8, 0))
 
     def get_site_templates(self, encoded):
-        """Szablony URL-i wyszukiwania na różnych stronach"""
         return [
             ("Pornhub", f"https://www.pornhub.com/video/search?search={encoded}"),
             ("Xvideos", f"https://www.xvideos.com/?k={encoded}"),
@@ -68,8 +75,85 @@ class PornLinkGenerator:
             ("RedTube", f"https://www.redtube.com/?search={encoded}"),
             ("YouPorn", f"https://www.youporn.com/search/?query={encoded}"),
             ("Tube8", f"https://www.tube8.com/search.html?q={encoded}"),
-            ("Google (site:pornhub)", f"https://www.google.com/search?q={encoded}+site:pornhub.com"),
         ]
+
+    def open_url(self, url):
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.read().decode("utf-8", errors="ignore")
+
+    def extract_direct_video_links(self, site_name, query):
+        encoded = urllib.parse.quote_plus(query)
+        search_urls = {
+            "Pornhub": f"https://www.pornhub.com/video/search?search={encoded}",
+            "Xvideos": f"https://www.xvideos.com/?k={encoded}",
+            "XNXX": f"https://www.xnxx.com/search/{encoded}",
+            "SpankBang": f"https://spankbang.com/s/{encoded}/",
+            "Eporner": f"https://www.eporner.com/search/{encoded}/",
+            "XHamster": f"https://xhamster.com/search/{encoded}",
+            "RedTube": f"https://www.redtube.com/?search={encoded}",
+            "YouPorn": f"https://www.youporn.com/search/?query={encoded}",
+            "Tube8": f"https://www.tube8.com/search.html?q={encoded}",
+        }
+
+        if site_name not in search_urls:
+            return []
+
+        try:
+            html_text = self.open_url(search_urls[site_name])
+        except Exception:
+            return []
+
+        patterns = {
+            "Pornhub": r"https://(?:www\.)?pornhub\.com/view_video\.php\?viewkey=[A-Za-z0-9_\-]+",
+            "Xvideos": r"https://(?:www\.)?xvideos\.com/video\d+/[^\s\"'<>]+",
+            "XNXX": r"https://(?:www\.)?xnxx\.com/video-[0-9]+/[^\s\"'<>]+",
+            "SpankBang": r"https://(?:www\.)?spankbang\.com/[A-Za-z0-9_\-]+/[0-9]+/",
+            "Eporner": r"https://(?:www\.)?eporner\.com/video-[0-9]+/[^\s\"'<>]+",
+            "XHamster": r"https://(?:www\.)?xhamster\.com/videos/[A-Za-z0-9_\-]+",
+            "RedTube": r"https://(?:www\.)?redtube\.com/\d+",
+            "YouPorn": r"https://(?:www\.)?youporn\.com/watch/\d+/[A-Za-z0-9_\-]+",
+            "Tube8": r"https://(?:www\.)?tube8\.com/[A-Za-z0-9_\-]+/",
+        }
+
+        matches = re.findall(patterns.get(site_name, r"https?://[^\s\"'<>]+"), html_text, flags=re.IGNORECASE)
+        seen = []
+        result = []
+        for match in matches:
+            normalized = match.rstrip('/').rstrip('"')
+            if normalized not in seen and "search" not in normalized.lower() and "google" not in normalized.lower():
+                seen.append(normalized)
+                result.append(normalized)
+        return result[:10]
+
+    def build_valid_search_url(self, site_name, query, page):
+        encoded = urllib.parse.quote_plus(query)
+
+        if site_name == "Pornhub":
+            return f"https://www.pornhub.com/video/search?search={encoded}&page={page}"
+        if site_name == "Xvideos":
+            return f"https://www.xvideos.com/?k={encoded}&p={page}" if page > 1 else f"https://www.xvideos.com/?k={encoded}"
+        if site_name == "XNXX":
+            return f"https://www.xnxx.com/search/{encoded}/{page}" if page > 1 else f"https://www.xnxx.com/search/{encoded}"
+        if site_name == "SpankBang":
+            return f"https://spankbang.com/s/{encoded}/?page={page}" if page > 1 else f"https://spankbang.com/s/{encoded}/"
+        if site_name == "Eporner":
+            return f"https://www.eporner.com/search/{encoded}/{page}/" if page > 1 else f"https://www.eporner.com/search/{encoded}/"
+        if site_name == "XHamster":
+            return f"https://xhamster.com/search/{encoded}?page={page}" if page > 1 else f"https://xhamster.com/search/{encoded}"
+        if site_name == "RedTube":
+            return f"https://www.redtube.com/?search={encoded}&page={page}"
+        if site_name == "YouPorn":
+            return f"https://www.youporn.com/search/?query={encoded}&page={page}"
+        if site_name == "Tube8":
+            return f"https://www.tube8.com/search.html?q={encoded}&page={page}"
+        return f"https://www.google.com/search?q={encoded}"
 
     def generate(self):
         keywords = self.keywords_entry.get().strip()
@@ -85,33 +169,40 @@ class PornLinkGenerator:
             messagebox.showwarning("Błąd", "Liczba linków musi być liczbą od 1 do 50.")
             return
 
-        encoded = urllib.parse.quote_plus(keywords)
-        templates = self.get_site_templates(encoded)
-
+        mode = self.search_mode.get()
         self.links = []
         self.result_text.delete(1.0, tk.END)
 
-        # Generujemy linki: najpierw podstawowe, potem z numerami stron / losowymi wariantami
-        for i in range(num):
-            site_name, base_url = templates[i % len(templates)]
+        if mode == "Losowe filmy z kategorii":
+            collected_links = []
+            for site_name, _ in self.get_site_templates(urllib.parse.quote_plus(keywords)):
+                collected_links.extend(self.extract_direct_video_links(site_name, keywords))
 
-            # Dodajemy warianty stron (page) żeby były bardziej zróżnicowane
-            page = (i // len(templates)) + 1
-            if "pornhub.com" in base_url:
-                url = f"{base_url}&page={page}"
-            elif "xvideos.com" in base_url:
-                url = f"{base_url}&p={page}" if page > 1 else base_url
-            elif "xnxx.com" in base_url:
-                url = f"{base_url}/{page}" if page > 1 else base_url
-            elif "spankbang.com" in base_url:
-                url = f"{base_url}?page={page}" if page > 1 else base_url
-            elif "eporner.com" in base_url:
-                url = f"{base_url}{page}/" if page > 1 else base_url
+            unique_links = []
+            for link in collected_links:
+                if link not in unique_links:
+                    unique_links.append(link)
+
+            if not unique_links:
+                messagebox.showwarning("Brak wyników", "Nie udało się pobrać prawdziwych filmów dla tej kategorii. Spróbuj inną frazę.")
+                return
+
+            import random
+            if len(unique_links) > num:
+                self.links = random.sample(unique_links, num)
             else:
-                url = base_url
+                self.links = unique_links[:num]
 
-            self.links.append(url)
-            self.result_text.insert(tk.END, f"{i+1}. [{site_name}] {url}\n\n")
+            for i, url in enumerate(self.links, start=1):
+                self.result_text.insert(tk.END, f"{i}. [Wideo] {url}\n\n")
+        else:
+            templates = self.get_site_templates(urllib.parse.quote_plus(keywords))
+            for i in range(num):
+                site_name, _ = templates[i % len(templates)]
+                page = (i // len(templates)) + 1
+                url = self.build_valid_search_url(site_name, keywords, page)
+                self.links.append(url)
+                self.result_text.insert(tk.END, f"{i+1}. [{site_name}] {url}\n\n")
 
         self.result_text.see(1.0)
         messagebox.showinfo("Gotowe", f"Wygenerowano {len(self.links)} linków.")
