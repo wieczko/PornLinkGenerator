@@ -1,0 +1,2 @@
+# Brak zewnętrznych zależności.
+# Program korzysta wyłącznie ze standardowej biblioteki Pythona (tkinter, urllib, webbrowser).
